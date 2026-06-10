@@ -96,10 +96,6 @@ scheduler.start()
 
 # ==================== HELPER FUNCTIONS =================
 
-def get_db():
-       """Legacy function - now returns db session"""
-       return db.session
-
 def admin_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
