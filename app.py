@@ -1,51 +1,110 @@
 from flask import Flask, render_template_string, request, jsonify, session, redirect, url_for, send_from_directory
 from functools import wraps
-import sqlite3
 import json
 import os
 from datetime import datetime, timedelta
 from werkzeug.utils import secure_filename
+from flask_sqlalchemy import SQLAlchemy
+from apscheduler.schedulers.background import BackgroundScheduler
 
 app = Flask(__name__)
-app.secret_key = 'mini-supply-secret-2026-change-this'  # PWA کے لیے ضروری
+app.secret_key = 'mini-supply-secret-2026-change-this'
 
-# Admin credentials (یہاں اپنا username اور password لگائیں)
+# Admin credentials
 ADMIN_USERNAME = 'admin'
 ADMIN_PASSWORD = 'admin123'
 
-# Create absolute path for upload folder
+# Upload folder setup
 UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static', 'uploads')
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 
-# Create upload folder if it doesn't exist
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-    print(f"Upload folder created: {UPLOAD_FOLDER}")
 
-DATABASE = 'supply.db'
+# ==================== DATABASE CONFIGURATION ====================
+# PostgreSQL for Render, SQLite for local development
+database_url = os.environ.get('DATABASE_URL')
+
+if database_url:
+    # Render uses postgres:// but SQLAlchemy needs postgresql://
+    if database_url.startswith('postgres://'):
+        database_url = database_url.replace('postgres://', 'postgresql://', 1)
+    app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+else:
+    # Local development fallback
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///supply.db'
+
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+db = SQLAlchemy(app)
+
+# ==================== DATABASE MODELS ====================
+
+class Product(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    price = db.Column(db.Float, nullable=False)
+    category = db.Column(db.String(100))
+    image_path = db.Column(db.String(500))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+class Order(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    shop_name = db.Column(db.String(200), nullable=False)
+    items = db.Column(db.Text, nullable=False)  # JSON string
+    total = db.Column(db.Float, nullable=False)
+    status = db.Column(db.String(20), default='pending')  # pending, purchased, delivered, cancelled
+    
+    # Dates for workflow
+    order_date = db.Column(db.DateTime, default=datetime.utcnow)
+    purchase_date = db.Column(db.DateTime, nullable=True)  # Day 2: خریداری
+    delivery_date = db.Column(db.DateTime, nullable=True)  # Day 3: ڈیلیوری
+    
+    # Auto-expiry: 7 days after order
+    expire_date = db.Column(db.DateTime, default=lambda: datetime.utcnow() + timedelta(days=7))
+
+# Create tables
+with app.app_context():
+    db.create_all()
+
+# ==================== AUTO CLEANUP SCHEDULER ====================
+
+def cleanup_old_orders():
+    """7 دن پرانے آرڈرز خودکار طور پر ڈیلیٹ کریں"""
+    with app.app_context():
+        cutoff_date = datetime.utcnow()
+        old_orders = Order.query.filter(Order.expire_date < cutoff_date).all()
+        count = len(old_orders)
+        for order in old_orders:
+            db.session.delete(order)
+        db.session.commit()
+        if count > 0:
+            print(f"✅ {count} پرانے آرڈرز ڈیلیٹ ہو گئے")
+
+# Start scheduler - runs every 24 hours
+scheduler = BackgroundScheduler()
+scheduler.add_job(func=cleanup_old_orders, trigger="interval", hours=24)
+scheduler.start()
+
+# ==================== HELPER FUNCTIONS ====================
 
 def get_db():
-    conn = sqlite3.connect(DATABASE)
-    conn.row_factory = sqlite3.Row
-    return conn
+    """Legacy function - now returns db session"""
+    return db.session
 
-# Admin authentication decorator
 def admin_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if not session.get('is_admin'):
-            return redirect(url_for('admin_login'))
-        return f(*args, **kwargs)
+            return redirect(url_for('admin_login'))        return f(*args, **kwargs)
     return decorated_function
 
-# Allowed image extensions
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-# ==================== CUSTOMER TEMPLATES ====================
+# ==================== HTML TEMPLATES (Same as before) ====================
 
 HTML_TEMPLATE = '''<!DOCTYPE html>
 <html>
@@ -86,8 +145,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             border-radius: 5px;
             font-size: 16px;
         }
-        .btn {
-            background: #1976d2;
+        .btn {            background: #1976d2;
             color: white;
             padding: 12px 30px;
             border: none;
@@ -96,7 +154,8 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             font-size: 16px;
             text-decoration: none;
             display: inline-block;
-        }        .btn:hover { background: #1565c0; }
+        }
+        .btn:hover { background: #1565c0; }
         .btn-success { background: #388e3c; }
         .btn-success:hover { background: #2e7d32; }
         .btn-danger { background: #d32f2f; }
@@ -135,8 +194,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             height: 200px;
             object-fit: cover;
             background: #f5f5f5;
-        }
-        .product-info { padding: 15px; }
+        }        .product-info { padding: 15px; }
         .product-info h3 { color: #333; margin-bottom: 8px; font-size: 18px; }
         .product-info p { color: #388e3c; font-weight: bold; font-size: 20px; }
         .product-info .category { color: #757575; font-size: 14px; margin-top: 5px; }
@@ -145,7 +203,8 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             padding: 20px;
             border-radius: 10px;
             position: fixed;
-            right: 20px;            top: 100px;
+            right: 20px;
+            top: 100px;
             width: 320px;
             box-shadow: 0 2px 15px rgba(0,0,0,0.2);
             max-height: 80vh;
@@ -184,8 +243,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             font-size: 12px;
         }
         .cart-total {
-            margin-top: 15px;
-            padding-top: 15px;
+            margin-top: 15px;            padding-top: 15px;
             border-top: 3px solid #1976d2;
             font-weight: bold;
             font-size: 22px;
@@ -194,7 +252,8 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
         .nav-links {
             display: flex;
             gap: 10px;
-            align-items: center;            flex-wrap: wrap;
+            align-items: center;
+            flex-wrap: wrap;
         }
         .my-orders-link {
             color: white;
@@ -233,8 +292,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             body { padding: 10px; }
         }
     </style>
-</head>
-<body>
+</head><body>
     {% if not session.get('logged_in') %}
     <div class="container">
         <div class="login-box">
@@ -243,7 +301,8 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             <form method="POST" action="/login">
                 <input type="text" name="shop_name" placeholder="Enter Shop Name" required>
                 <button type="submit" class="btn" style="width: 100%;">Login</button>
-            </form>        </div>
+            </form>
+        </div>
     </div>
     {% else %}
     <div class="container">
@@ -282,8 +341,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
                     </button>
                 </div>
             </div>
-            {% endfor %}
-        </div>
+            {% endfor %}        </div>
     </div>
     
     <div class="cart">
@@ -292,7 +350,8 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             <p style="color: #999; text-align: center; padding: 20px;">Cart is empty</p>
         </div>
         <div class="cart-total">
-            Total: Rs. <span id="cartTotal">0</span>        </div>
+            Total: Rs. <span id="cartTotal">0</span>
+        </div>
         <button class="btn btn-success" style="width: 100%; margin-top: 15px; padding: 15px;" onclick="submitOrder()">
             📦 Submit Order
         </button>
@@ -331,8 +390,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
         function updateCart() {
             const cartItems = document.getElementById('cartItems');
             const cartTotal = document.getElementById('cartTotal');
-            
-            if (cart.length === 0) {
+                        if (cart.length === 0) {
                 cartItems.innerHTML = '<p style="color: #999; text-align: center; padding: 20px;">Cart is empty</p>';
                 cartTotal.textContent = '0';
                 return;
@@ -341,7 +399,8 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             let html = '';
             let total = 0;
             
-            cart.forEach(item => {                const itemTotal = item.price * item.quantity;
+            cart.forEach(item => {
+                const itemTotal = item.price * item.quantity;
                 total += itemTotal;
                 html += `
                     <div class="cart-item">
@@ -380,18 +439,18 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
         function submitOrder() {
             if (cart.length === 0) {
                 alert('Cart is empty! Please add some products.');
-                return;
-            }
+                return;            }
             
             const total = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
             
             const today = new Date();
             const deliveryDate = new Date(today);
-            deliveryDate.setDate(deliveryDate.getDate() + 1);
+            deliveryDate.setDate(deliveryDate.getDate() + 2); // 2 days from now (Day 3)
             
             const deliveryDateStr = deliveryDate.toLocaleDateString('en-US', { 
-                year: 'numeric',                 month: 'long', 
-                day: 'numeric' 
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
             });
             
             if (!confirm(`Order Total: Rs. ${total}\\n\\nExpected Delivery: ${deliveryDateStr}\\n\\nConfirm order?`)) {
@@ -429,8 +488,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
                 navigator.serviceWorker.register('/static/service-worker.js')
-                    .then(reg => console.log('Service Worker registered'))
-                    .catch(err => console.log('SW registration failed:', err));
+                    .then(reg => console.log('Service Worker registered'))                    .catch(err => console.log('SW registration failed:', err));
             });
         }
     </script>
@@ -438,7 +496,6 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
 </html>
 '''
 
-# My Orders Template
 MY_ORDERS_TEMPLATE = '''<!DOCTYPE html>
 <html>
 <head>
@@ -480,15 +537,16 @@ MY_ORDERS_TEMPLATE = '''<!DOCTYPE html>
             padding: 5px 15px;
             border-radius: 20px;
             font-size: 12px;
-            font-weight: bold;
-        }
+            font-weight: bold;        }
         .status-pending { background: #fff3cd; color: #856404; }
+        .status-purchased { background: #cce5ff; color: #004085; }
         .status-delivered { background: #d4edda; color: #155724; }
         .status-cancelled { background: #f8d7da; color: #721c24; }
         .delivery-info {
             background: #e3f2fd;
             padding: 10px;
-            border-radius: 5px;            margin-top: 10px;
+            border-radius: 5px;
+            margin-top: 10px;
         }
         .btn {
             padding: 10px 20px;
@@ -528,23 +586,23 @@ MY_ORDERS_TEMPLATE = '''<!DOCTYPE html>
         </div>
         
         <h2 style="margin-bottom: 20px; color: #1976d2;">Your Orders ({{ orders|length }})</h2>
-        
-        {% if orders %}
+                {% if orders %}
             {% for order in orders %}
             <div class="order-card">
                 <div class="order-header">
                     <div>
                         <strong>Order #{{ order.id }}</strong><br>
-                        <small>Order Date: {{ order.order_date }}</small>
+                        <small>Order Date: {{ order.order_date.strftime('%Y-%m-%d %H:%M') if order.order_date else 'N/A' }}</small>
                     </div>
-                    <div>                        <span class="order-status status-{{ order.status }}">{{ order.status.upper() }}</span>
+                    <div>
+                        <span class="order-status status-{{ order.status }}">{{ order.status.upper() }}</span>
                     </div>
                 </div>
                 <div>
                     <strong>Items:</strong>
                     <ul style="margin: 10px 0; padding-left: 20px;">
-                        {% if order['items'] %}
-                            {% for item in order['items'] %}
+                        {% if order.items_list %}
+                            {% for item in order.items_list %}
                             <li>{{ item.name }} - Rs. {{ item.price }} x {{ item.quantity }}</li>
                             {% endfor %}
                         {% else %}
@@ -554,7 +612,7 @@ MY_ORDERS_TEMPLATE = '''<!DOCTYPE html>
                     <strong>Total: Rs. {{ order.total }}</strong>
                 </div>
                 <div class="delivery-info">
-                    <strong>📅 Delivery Date:</strong> {{ order.delivery_date }}
+                    <strong>📅 Delivery Date:</strong> {{ order.delivery_date.strftime('%Y-%m-%d') if order.delivery_date else 'N/A' }}
                 </div>
                 {% if order.status == 'pending' %}
                 <div style="margin-top: 15px;">
@@ -577,8 +635,7 @@ MY_ORDERS_TEMPLATE = '''<!DOCTYPE html>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
                 navigator.serviceWorker.register('/static/service-worker.js')
-                    .then(reg => console.log('Service Worker registered'))
-                    .catch(err => console.log('SW registration failed:', err));
+                    .then(reg => console.log('Service Worker registered'))                    .catch(err => console.log('SW registration failed:', err));
             });
         }
     </script>
@@ -586,7 +643,6 @@ MY_ORDERS_TEMPLATE = '''<!DOCTYPE html>
 </html>
 '''
 
-# ==================== ADMIN TEMPLATES ====================
 ADMIN_LOGIN_TEMPLATE = '''
 <!DOCTYPE html>
 <html>
@@ -628,14 +684,14 @@ ADMIN_LOGIN_TEMPLATE = '''
         .back a { color: #1976d2; }
     </style>
 </head>
-<body>
-    <div class="login-box">
+<body>    <div class="login-box">
         <h1>🔧 Admin Login</h1>
         {% if error %}
         <div class="error">{{ error }}</div>
         {% endif %}
         <form method="POST">
-            <input type="text" name="username" placeholder="Username" required>            <input type="password" name="password" placeholder="Password" required>
+            <input type="text" name="username" placeholder="Username" required>
+            <input type="password" name="password" placeholder="Password" required>
             <button type="submit">Login</button>
         </form>
         <div class="back">
@@ -677,14 +733,14 @@ ADMIN_PRODUCTS_TEMPLATE = '''
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }
         .section h2 {
-            color: #7b1fa2;
-            margin-bottom: 20px;
+            color: #7b1fa2;            margin-bottom: 20px;
             padding-bottom: 10px;
             border-bottom: 2px solid #7b1fa2;
         }
         .btn {
             padding: 10px 20px;
-            border: none;            border-radius: 5px;
+            border: none;
+            border-radius: 5px;
             cursor: pointer;
             font-size: 14px;
             text-decoration: none;
@@ -726,14 +782,14 @@ ADMIN_PRODUCTS_TEMPLATE = '''
         }
         .nav-links {
             display: flex;
-            gap: 10px;
-            align-items: center;
+            gap: 10px;            align-items: center;
         }
         .modal {
             display: none;
             position: fixed;
             top: 0;
-            left: 0;            width: 100%;
+            left: 0;
+            width: 100%;
             height: 100%;
             background: rgba(0,0,0,0.5);
             z-index: 1000;
@@ -775,14 +831,14 @@ ADMIN_PRODUCTS_TEMPLATE = '''
             <h2>➕ Add New Product</h2>
             <form method="POST" action="/admin/add_product" enctype="multipart/form-data">
                 <div class="form-group">
-                    <label>Product Name:</label>
-                    <input type="text" name="name" required style="width: 100%;">
+                    <label>Product Name:</label>                    <input type="text" name="name" required style="width: 100%;">
                 </div>
                 <div class="form-group">
                     <label>Price (Rs.):</label>
                     <input type="number" name="price" step="0.01" required style="width: 200px;">
                 </div>
-                <div class="form-group">                    <label>Category:</label>
+                <div class="form-group">
+                    <label>Category:</label>
                     <input type="text" name="category" placeholder="e.g., Rice, Flour, Spices" style="width: 300px;">
                 </div>
                 <div class="form-group">
@@ -824,14 +880,14 @@ ADMIN_PRODUCTS_TEMPLATE = '''
                                 <button type="submit" class="btn btn-danger">Delete</button>
                             </form>
                         </td>
-                    </tr>
-                    {% endfor %}
+                    </tr>                    {% endfor %}
                 </tbody>
             </table>
         </div>
     </div>
     
-    <div id="editModal" class="modal">        <div class="modal-content">
+    <div id="editModal" class="modal">
+        <div class="modal-content">
             <span class="close-modal" onclick="closeModal()">&times;</span>
             <h2>Edit Product</h2>
             <form id="editForm" method="POST" action="/admin/edit_product">
@@ -873,14 +929,14 @@ ADMIN_PRODUCTS_TEMPLATE = '''
             }
         }
     </script>
-</body>
-</html>
+</body></html>
 '''
 
 ADMIN_ORDERS_TEMPLATE = '''
 <!DOCTYPE html>
 <html>
-<head>    <title>Admin - Orders Management</title>
+<head>
+    <title>Admin - Orders Management</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#7b1fa2">
     <link rel="manifest" href="/static/manifest.json">
@@ -922,14 +978,14 @@ ADMIN_ORDERS_TEMPLATE = '''
             display: inline-block;
             margin: 5px;
         }
-        .btn-primary { background: #1976d2; color: white; }
-        .btn-success { background: #388e3c; color: white; }
+        .btn-primary { background: #1976d2; color: white; }        .btn-success { background: #388e3c; color: white; }
         .btn-danger { background: #d32f2f; color: white; }
         .btn-info { background: #0288d1; color: white; }
         .btn:hover { opacity: 0.9; }
         .order-card {
             background: #f9f9f9;
-            padding: 20px;            border-radius: 8px;
+            padding: 20px;
+            border-radius: 8px;
             margin: 15px 0;
             border-left: 4px solid #1976d2;
         }
@@ -947,6 +1003,7 @@ ADMIN_ORDERS_TEMPLATE = '''
             font-weight: bold;
         }
         .status-pending { background: #fff3cd; color: #856404; }
+        .status-purchased { background: #cce5ff; color: #004085; }
         .status-delivered { background: #d4edda; color: #155724; }
         .status-cancelled { background: #f8d7da; color: #721c24; }
         .delivery-info {
@@ -970,28 +1027,28 @@ ADMIN_ORDERS_TEMPLATE = '''
             .header { flex-direction: column; text-align: center; }
             .order-header { flex-direction: column; }
             body { padding: 10px; }
-            .section { padding: 15px; }
-        }
+            .section { padding: 15px; }        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
             <h1>📬 Orders Management</h1>
-            <div class="nav-links">                <a href="/admin/products" class="btn btn-info">📦 Products</a>
+            <div class="nav-links">
+                <a href="/admin/products" class="btn btn-info">📦 Products</a>
                 <a href="/admin_logout" class="btn btn-danger">Logout</a>
             </div>
         </div>
         
         <div class="section">
-            <h2>📦 All Orders ({{ orders|length }})</h2>
+            <h2> All Orders ({{ orders|length }})</h2>
             {% if orders %}
                 {% for order in orders %}
                 <div class="order-card">
                     <div class="order-header">
                         <div>
-                            <strong>🏪 {{ order.shop_name }}</strong><br>
-                            <small>Order #{{ order.id }} | Order Date: {{ order.order_date }}</small>
+                            <strong> {{ order.shop_name }}</strong><br>
+                            <small>Order #{{ order.id }} | Order Date: {{ order.order_date.strftime('%Y-%m-%d %H:%M') if order.order_date else 'N/A' }}</small>
                         </div>
                         <div>
                             <span class="order-status status-{{ order.status }}">{{ order.status.upper() }}</span>
@@ -1000,8 +1057,8 @@ ADMIN_ORDERS_TEMPLATE = '''
                     <div>
                         <strong>Items:</strong>
                         <ul style="margin: 10px 0; padding-left: 20px;">
-                            {% if order['items'] %}
-                                {% for item in order['items'] %}
+                            {% if order.items_list %}
+                                {% for item in order.items_list %}
                                 <li>{{ item.name }} - Rs. {{ item.price }} x {{ item.quantity }}</li>
                                 {% endfor %}
                             {% else %}
@@ -1011,15 +1068,15 @@ ADMIN_ORDERS_TEMPLATE = '''
                         <strong>Total: Rs. {{ order.total }}</strong>
                     </div>
                     <div class="delivery-info">
-                        <strong>📅 Delivery Date:</strong> {{ order.delivery_date }}
+                        <strong>📅 Delivery Date:</strong> {{ order.delivery_date.strftime('%Y-%m-%d') if order.delivery_date else 'N/A' }}
                     </div>
                     <div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
                         <form method="POST" action="/admin/update_order/{{ order.id }}" style="display: inline;">
                             <select name="status" style="margin-right: 10px;">
                                 <option value="pending" {% if order.status == 'pending' %}selected{% endif %}>Pending</option>
+                                <option value="purchased" {% if order.status == 'purchased' %}selected{% endif %}>Purchased</option>
                                 <option value="delivered" {% if order.status == 'delivered' %}selected{% endif %}>Delivered</option>
-                                <option value="cancelled" {% if order.status == 'cancelled' %}selected{% endif %}>Cancelled</option>
-                            </select>
+                                <option value="cancelled" {% if order.status == 'cancelled' %}selected{% endif %}>Cancelled</option>                            </select>
                             <button type="submit" class="btn btn-primary">Update Status</button>
                         </form>
                         <form method="POST" action="/admin/delete_order/{{ order.id }}" style="display: inline;" onsubmit="return confirm('Delete this order? This cannot be undone!');">
@@ -1027,7 +1084,8 @@ ADMIN_ORDERS_TEMPLATE = '''
                         </form>
                     </div>
                 </div>
-                {% endfor %}            {% else %}
+                {% endfor %}
+            {% else %}
                 <p style="color: #999; text-align: center; padding: 40px;">No orders yet</p>
             {% endif %}
         </div>
@@ -1043,9 +1101,7 @@ def home():
     if not session.get('logged_in'):
         return render_template_string(HTML_TEMPLATE, products=[], categories=[])
     
-    conn = get_db()
-    products = conn.execute('SELECT * FROM products').fetchall()
-    conn.close()
+    products = Product.query.order_by(Product.id.desc()).all()
     return render_template_string(HTML_TEMPLATE, products=products, categories=[])
 
 @app.route('/login', methods=['POST'])
@@ -1066,22 +1122,14 @@ def my_orders():
         return redirect(url_for('home'))
     
     shop_name = session.get('shop_name')
-    conn = get_db()
-    orders_raw = conn.execute('SELECT * FROM orders WHERE shop_name = ? ORDER BY order_date DESC', (shop_name,)).fetchall()
+    orders = Order.query.filter_by(shop_name=shop_name).order_by(Order.order_date.desc()).all()
     
-    orders = []
-    for order in orders_raw:
-        order_dict = dict(order)
-        try:
-            items_str = order['items']
-            if items_str:
-                order_dict['items'] = json.loads(items_str)
-            else:                order_dict['items'] = []
+    # Parse JSON items for each order
+    for order in orders:        try:
+            order.items_list = json.loads(order.items) if order.items else []
         except:
-            order_dict['items'] = []
-        orders.append(order_dict)
+            order.items_list = []
     
-    conn.close()
     return render_template_string(MY_ORDERS_TEMPLATE, orders=orders)
 
 @app.route('/cancel_order/<int:order_id>', methods=['POST'])
@@ -1090,11 +1138,11 @@ def cancel_order(order_id):
         return redirect(url_for('home'))
     
     shop_name = session.get('shop_name')
-    conn = get_db()
-    # Only allow customer to cancel their own order
-    conn.execute('UPDATE orders SET status = ? WHERE id = ? AND shop_name = ?', ('cancelled', order_id, shop_name))
-    conn.commit()
-    conn.close()
+    order = Order.query.filter_by(id=order_id, shop_name=shop_name).first()
+    if order:
+        order.status = 'cancelled'
+        db.session.commit()
+    
     return redirect(url_for('my_orders'))
 
 @app.route('/submit_order', methods=['POST'])
@@ -1107,17 +1155,26 @@ def submit_order():
     
     try:
         delivery_dt = datetime.fromisoformat(delivery_date.replace('Z', '+00:00'))
-        delivery_str = delivery_dt.strftime('%Y-%m-%d %H:%M:%S')
     except:
-        delivery_str = (datetime.now() + timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S')
+        delivery_dt = datetime.utcnow() + timedelta(days=2)
     
-    conn = get_db()
-    conn.execute('''
-        INSERT INTO orders (shop_name, items, total, delivery_date, status)
-        VALUES (?, ?, ?, ?, 'pending')
-    ''', (shop_name, json.dumps(items), total, delivery_str))
-    conn.commit()
-    conn.close()
+    # Calculate dates for workflow
+    order_date = datetime.utcnow()
+    purchase_date = order_date + timedelta(days=1)  # Day 2: خریداری
+    # delivery_date is already set to Day 3 from frontend
+    
+    new_order = Order(
+        shop_name=shop_name,
+        items=json.dumps(items),
+        total=total,
+        status='pending',
+        order_date=order_date,
+        purchase_date=purchase_date,
+        delivery_date=delivery_dt,
+        expire_date=order_date + timedelta(days=7)
+    )
+    
+    db.session.add(new_order)    db.session.commit()
     
     return jsonify({'success': True})
 
@@ -1128,7 +1185,6 @@ def admin_login():
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
-        
         
         if username == ADMIN_USERNAME and password == ADMIN_PASSWORD:
             session['is_admin'] = True
@@ -1151,34 +1207,22 @@ def admin():
 @app.route('/admin/products')
 @admin_required
 def admin_products():
-    conn = get_db()
-    products = conn.execute('SELECT * FROM products ORDER BY id DESC').fetchall()
-    conn.close()
+    products = Product.query.order_by(Product.id.desc()).all()
     return render_template_string(ADMIN_PRODUCTS_TEMPLATE, products=products)
 
 @app.route('/admin/orders')
 @admin_required
 def admin_orders():
-    conn = get_db()
-    orders_raw = conn.execute('SELECT * FROM orders ORDER BY order_date DESC').fetchall()
+    orders = Order.query.order_by(Order.order_date.desc()).all()
     
-    orders = []
-    for order in orders_raw:
-        order_dict = dict(order)
+    # Parse JSON items for each order
+    for order in orders:
         try:
-            items_str = order['items']
-            if items_str:
-                order_dict['items'] = json.loads(items_str)
-            else:
-                order_dict['items'] = []
-        except Exception as e:
-            print(f"Error parsing items: {e}")
-            order_dict['items'] = []
-        orders.append(order_dict)
+            order.items_list = json.loads(order.items) if order.items else []
+        except:
+            order.items_list = []
     
-    conn.close()
     return render_template_string(ADMIN_ORDERS_TEMPLATE, orders=orders)
-
 @app.route('/admin/add_product', methods=['POST'])
 @admin_required
 def add_product():
@@ -1202,11 +1246,14 @@ def add_product():
             file.save(filepath)
             image_path = '/static/uploads/' + filename
     
-    conn = get_db()
-    conn.execute('INSERT INTO products (name, price, category, image_path) VALUES (?, ?, ?, ?)',
-                 (name, price, category, image_path))
-    conn.commit()
-    conn.close()
+    new_product = Product(
+        name=name,
+        price=price,
+        category=category,
+        image_path=image_path
+    )
+    db.session.add(new_product)
+    db.session.commit()
     
     return redirect(url_for('admin_products'))
 
@@ -1218,41 +1265,46 @@ def edit_product():
     price = float(request.form.get('price'))
     category = request.form.get('category')
     
-    conn = get_db()
-    conn.execute('UPDATE products SET name = ?, price = ?, category = ? WHERE id = ?',
-                 (name, price, category, product_id))
-    conn.commit()
-    conn.close()
+    product = Product.query.get_or_404(product_id)
+    product.name = name
+    product.price = price
+    product.category = category
+    
+    db.session.commit()
     
     return redirect(url_for('admin_products'))
-
 @app.route('/admin/delete_product/<int:product_id>', methods=['POST'])
 @admin_required
 def delete_product(product_id):
-
-    conn = get_db()
-    conn.execute('DELETE FROM products WHERE id = ?', (product_id,))
-    conn.commit()
-    conn.close()
+    product = Product.query.get_or_404(product_id)
+    db.session.delete(product)
+    db.session.commit()
     return redirect(url_for('admin_products'))
 
 @app.route('/admin/update_order/<int:order_id>', methods=['POST'])
 @admin_required
 def update_order(order_id):
     status = request.form.get('status')
-    conn = get_db()
-    conn.execute('UPDATE orders SET status = ? WHERE id = ?', (status, order_id))
-    conn.commit()
-    conn.close()
+    order = Order.query.get_or_404(order_id)
+    order.status = status
+    
+    # Auto-set purchase date when status changes to purchased
+    if status == 'purchased' and not order.purchase_date:
+        order.purchase_date = datetime.utcnow()
+    
+    # Auto-set delivery date when status changes to delivered
+    if status == 'delivered' and not order.delivery_date:
+        order.delivery_date = datetime.utcnow()
+    
+    db.session.commit()
     return redirect(url_for('admin_orders'))
 
 @app.route('/admin/delete_order/<int:order_id>', methods=['POST'])
 @admin_required
 def delete_order(order_id):
-    conn = get_db()
-    conn.execute('DELETE FROM orders WHERE id = ?', (order_id,))
-    conn.commit()
-    conn.close()
+    order = Order.query.get_or_404(order_id)
+    db.session.delete(order)
+    db.session.commit()
     return redirect(url_for('admin_orders'))
 
 # ==================== PWA ROUTES ====================
@@ -1269,6 +1321,7 @@ def serve_sw():
 def static_files(filename):
     return send_from_directory('static', filename)
 
+# ==================== RUN APP ====================
 import os
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8550))
