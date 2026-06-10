@@ -2,7 +2,7 @@ from flask import Flask, render_template_string, request, jsonify, session, redi
 from functools import wraps
 import json
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from werkzeug.utils import secure_filename
 from flask_sqlalchemy import SQLAlchemy
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -39,15 +39,23 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
 
-# ==================== DATABASE MODELS ====================
+# ==================== PAKISTAN TIMEZONE ====================
+# پاکستان کا ٹائم زون (UTC+5)
+pk_timezone = timezone(timedelta(hours=5))
 
+def get_pakistan_time():
+    """پاکستان کا موجودہ وقت"""
+    return datetime.now(pk_timezone)
+
+# ==================== DATABASE MODELS ====================
 class Product(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(200), nullable=False)
     price = db.Column(db.Float, nullable=False)
     category = db.Column(db.String(100))
     image_path = db.Column(db.String(500))
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=get_pakistan_time)
+
 class Order(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     shop_name = db.Column(db.String(200), nullable=False)
@@ -56,12 +64,12 @@ class Order(db.Model):
     status = db.Column(db.String(20), default='pending')  # pending, purchased, delivered, cancelled
     
     # Dates for workflow
-    order_date = db.Column(db.DateTime, default=datetime.utcnow)
+    order_date = db.Column(db.DateTime, default=get_pakistan_time)
     purchase_date = db.Column(db.DateTime, nullable=True)  # Day 2: خریداری
     delivery_date = db.Column(db.DateTime, nullable=True)  # Day 3: ڈیلیوری
     
     # Auto-expiry: 7 days after order
-    expire_date = db.Column(db.DateTime, default=lambda: datetime.utcnow() + timedelta(days=7))
+    expire_date = db.Column(db.DateTime, default=lambda: get_pakistan_time() + timedelta(days=7))
 
 # Create tables
 with app.app_context():
@@ -72,7 +80,7 @@ with app.app_context():
 def cleanup_old_orders():
     """7 دن پرانے آرڈرز خودکار طور پر ڈیلیٹ کریں"""
     with app.app_context():
-        cutoff_date = datetime.utcnow()
+        cutoff_date = get_pakistan_time()
         old_orders = Order.query.filter(Order.expire_date < cutoff_date).all()
         count = len(old_orders)
         for order in old_orders:
@@ -96,7 +104,8 @@ def admin_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if not session.get('is_admin'):
-            return redirect(url_for('admin_login'))        return f(*args, **kwargs)
+            return redirect(url_for('admin_login'))
+        return f(*args, **kwargs)
     return decorated_function
 
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
@@ -104,7 +113,7 @@ ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-# ==================== HTML TEMPLATES (Same as before) ====================
+# ==================== HTML TEMPLATES ====================
 
 HTML_TEMPLATE = '''<!DOCTYPE html>
 <html>
@@ -137,15 +146,15 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             margin: 50px auto;
             text-align: center;
         }
-        .login-box input {
-            width: 100%;
+        .login-box input {            width: 100%;
             padding: 12px;
             margin: 15px 0;
             border: 1px solid #ddd;
             border-radius: 5px;
             font-size: 16px;
         }
-        .btn {            background: #1976d2;
+        .btn {
+            background: #1976d2;
             color: white;
             padding: 12px 30px;
             border: none;
@@ -186,15 +195,15 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             border-radius: 10px;
             overflow: hidden;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            transition: transform 0.2s;
-        }
+            transition: transform 0.2s;        }
         .product-card:hover { transform: translateY(-5px); }
         .product-image {
             width: 100%;
             height: 200px;
             object-fit: cover;
             background: #f5f5f5;
-        }        .product-info { padding: 15px; }
+        }
+        .product-info { padding: 15px; }
         .product-info h3 { color: #333; margin-bottom: 8px; font-size: 18px; }
         .product-info p { color: #388e3c; font-weight: bold; font-size: 20px; }
         .product-info .category { color: #757575; font-size: 14px; margin-top: 5px; }
@@ -235,15 +244,15 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
         .qty-btn:hover { background: #1565c0; }
         .remove-btn {
             background: #d32f2f;
-            color: white;
-            border: none;
+            color: white;            border: none;
             padding: 5px 10px;
             border-radius: 5px;
             cursor: pointer;
             font-size: 12px;
         }
         .cart-total {
-            margin-top: 15px;            padding-top: 15px;
+            margin-top: 15px;
+            padding-top: 15px;
             border-top: 3px solid #1976d2;
             font-weight: bold;
             font-size: 22px;
@@ -284,15 +293,15 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             .products-grid {
                 grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
                 gap: 10px;
-                margin-bottom: 350px;
-            }
+                margin-bottom: 350px;            }
             .product-image { height: 150px; }
             .header { flex-direction: column; text-align: center; }
             .nav-links { margin-top: 10px; justify-content: center; }
             body { padding: 10px; }
         }
     </style>
-</head><body>
+</head>
+<body>
     {% if not session.get('logged_in') %}
     <div class="container">
         <div class="login-box">
@@ -333,15 +342,15 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
                     <h3>{{ product.name }}</h3>
                     <p>Rs. {{ product.price }}</p>
                     {% if product.category %}
-                    <div class="category">Category: {{ product.category }}</div>
-                    {% endif %}
+                    <div class="category">Category: {{ product.category }}</div>                    {% endif %}
                     <button class="btn btn-success" style="width: 100%; margin-top: 10px;" 
                             onclick="addToCart({{ product.id }}, '{{ product.name }}', {{ product.price }})">
                         🛒 Add to Cart
                     </button>
                 </div>
             </div>
-            {% endfor %}        </div>
+            {% endfor %}
+        </div>
     </div>
     
     <div class="cart">
@@ -382,15 +391,15 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             }
         }
         
-        function removeItem(id) {
-            cart = cart.filter(item => item.id !== id);
+        function removeItem(id) {            cart = cart.filter(item => item.id !== id);
             updateCart();
         }
         
         function updateCart() {
             const cartItems = document.getElementById('cartItems');
             const cartTotal = document.getElementById('cartTotal');
-                        if (cart.length === 0) {
+            
+            if (cart.length === 0) {
                 cartItems.innerHTML = '<p style="color: #999; text-align: center; padding: 20px;">Cart is empty</p>';
                 cartTotal.textContent = '0';
                 return;
@@ -431,21 +440,21 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
                 if (name.includes(searchTerm)) {
                     product.style.display = 'block';
                 } else {
-                    product.style.display = 'none';
-                }
+                    product.style.display = 'none';                }
             });
         }
         
         function submitOrder() {
             if (cart.length === 0) {
                 alert('Cart is empty! Please add some products.');
-                return;            }
+                return;
+            }
             
             const total = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
             
             const today = new Date();
             const deliveryDate = new Date(today);
-            deliveryDate.setDate(deliveryDate.getDate() + 2); // 2 days from now (Day 3)
+            deliveryDate.setDate(deliveryDate.getDate() + 2); // آج سے 2 دن بعد (تیسرے دن ڈیلیوری)
             
             const deliveryDateStr = deliveryDate.toLocaleDateString('en-US', { 
                 year: 'numeric',
@@ -453,7 +462,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
                 day: 'numeric'
             });
             
-            if (!confirm(`Order Total: Rs. ${total}\\n\\nExpected Delivery: ${deliveryDateStr}\\n\\nConfirm order?`)) {
+            if (!confirm(`Order Total: Rs. ${total}\n\nExpected Delivery: ${deliveryDateStr}\n\nConfirm order?`)) {
                 return;
             }
             
@@ -470,7 +479,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    alert('✅ Order submitted successfully!\\n\\nDelivery Date: ' + deliveryDateStr);
+                    alert('✅ Order submitted successfully!\n\nDelivery Date: ' + deliveryDateStr);
                     cart = [];
                     updateCart();
                 } else {
@@ -480,15 +489,15 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             .catch(error => {
                 console.error('Error:', error);
                 alert('Error submitting order');
-            });
-        }
+            });        }
         
         updateCart();
         
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
                 navigator.serviceWorker.register('/static/service-worker.js')
-                    .then(reg => console.log('Service Worker registered'))                    .catch(err => console.log('SW registration failed:', err));
+                    .then(reg => console.log('Service Worker registered'))
+                    .catch(err => console.log('SW registration failed:', err));
             });
         }
     </script>
@@ -529,15 +538,15 @@ MY_ORDERS_TEMPLATE = '''<!DOCTYPE html>
         .order-header {
             display: flex;
             justify-content: space-between;
-            margin-bottom: 15px;
-            padding-bottom: 10px;
+            margin-bottom: 15px;            padding-bottom: 10px;
             border-bottom: 1px solid #ddd;
         }
         .order-status {
             padding: 5px 15px;
             border-radius: 20px;
             font-size: 12px;
-            font-weight: bold;        }
+            font-weight: bold;
+        }
         .status-pending { background: #fff3cd; color: #856404; }
         .status-purchased { background: #cce5ff; color: #004085; }
         .status-delivered { background: #d4edda; color: #155724; }
@@ -578,41 +587,61 @@ MY_ORDERS_TEMPLATE = '''<!DOCTYPE html>
     <div class="container">
         <div class="header">
             <h1>📦 My Orders</h1>
-            <div class="nav-links">
-                <span>Welcome: <strong>{{ session.shop_name }}</strong></span>
+            <div class="nav-links">                <span>Welcome: <strong>{{ session.shop_name }}</strong></span>
                 <a href="/" class="btn btn-primary">🛒 Products</a>
                 <a href="/logout" class="btn btn-danger">Logout</a>
             </div>
         </div>
         
         <h2 style="margin-bottom: 20px; color: #1976d2;">Your Orders ({{ orders|length }})</h2>
-                {% if orders %}
+        
+        {% if orders %}
             {% for order in orders %}
             <div class="order-card">
                 <div class="order-header">
                     <div>
                         <strong>Order #{{ order.id }}</strong><br>
-                        <small>Order Date: {{ order.order_date.strftime('%Y-%m-%d %H:%M') if order.order_date else 'N/A' }}</small>
+                        <small>
+                            Order Date: {{ order.order_date.strftime('%Y-%m-%d %I:%M %p') if order.order_date else 'N/A' }} (PKT)<br>
+                            Purchase Date: {{ order.purchase_date.strftime('%Y-%m-%d') if order.purchase_date else 'N/A' }}<br>
+                            Delivery Date: {{ order.delivery_date.strftime('%Y-%m-%d') if order.delivery_date else 'N/A' }}
+                        </small>
                     </div>
                     <div>
                         <span class="order-status status-{{ order.status }}">{{ order.status.upper() }}</span>
                     </div>
                 </div>
                 <div>
-                    <strong>Items:</strong>
-                    <ul style="margin: 10px 0; padding-left: 20px;">
-                        {% if order.items_list %}
-                            {% for item in order.items_list %}
-                            <li>{{ item.name }} - Rs. {{ item.price }} x {{ item.quantity }}</li>
-                            {% endfor %}
-                        {% else %}
-                            <li>No items</li>
-                        {% endif %}
-                    </ul>
-                    <strong>Total: Rs. {{ order.total }}</strong>
-                </div>
-                <div class="delivery-info">
-                    <strong>📅 Delivery Date:</strong> {{ order.delivery_date.strftime('%Y-%m-%d') if order.delivery_date else 'N/A' }}
+                    <strong>📦 Order Items:</strong>
+                    <table style="width: 100%; margin: 10px 0; border-collapse: collapse;">
+                        <thead>
+                            <tr style="background: #f5f5f5;">
+                                <th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Product</th>
+                                <th style="padding: 10px; border: 1px solid #ddd; text-align: center;">Qty</th>
+                                <th style="padding: 10px; border: 1px solid #ddd; text-align: right;">Price</th>
+                                <th style="padding: 10px; border: 1px solid #ddd; text-align: right;">Subtotal</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% if order.items_list %}
+                                {% for item in order.items_list %}
+                                <tr>
+                                    <td style="padding: 10px; border: 1px solid #ddd;">{{ item.name }}</td>
+                                    <td style="padding: 10px; border: 1px solid #ddd; text-align: center;">{{ item.quantity }}</td>
+                                    <td style="padding: 10px; border: 1px solid #ddd; text-align: right;">Rs. {{ item.price }}</td>
+                                    <td style="padding: 10px; border: 1px solid #ddd; text-align: right;">Rs. {{ item.price * item.quantity }}</td>
+                                </tr>
+                                {% endfor %}
+                            {% else %}
+                                <tr><td colspan="4" style="padding: 10px; text-align: center;">No items</td></tr>
+                            {% endif %}
+                        </tbody>
+                        <tfoot>                            <tr style="background: #e3f2fd; font-weight: bold;">
+                                <td colspan="3" style="padding: 10px; border: 1px solid #ddd; text-align: right;">Total:</td>
+                                <td style="padding: 10px; border: 1px solid #ddd; text-align: right; color: #388e3c; font-size: 18px;">Rs. {{ order.total }}</td>
+                            </tr>
+                        </tfoot>
+                    </table>
                 </div>
                 {% if order.status == 'pending' %}
                 <div style="margin-top: 15px;">
@@ -635,7 +664,8 @@ MY_ORDERS_TEMPLATE = '''<!DOCTYPE html>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
                 navigator.serviceWorker.register('/static/service-worker.js')
-                    .then(reg => console.log('Service Worker registered'))                    .catch(err => console.log('SW registration failed:', err));
+                    .then(reg => console.log('Service Worker registered'))
+                    .catch(err => console.log('SW registration failed:', err));
             });
         }
     </script>
@@ -655,8 +685,7 @@ ADMIN_LOGIN_TEMPLATE = '''
             background: white; 
             padding: 40px; 
             max-width: 400px; 
-            margin: 100px auto; 
-            border-radius: 10px;
+            margin: 100px auto;             border-radius: 10px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }
         h1 { color: #7b1fa2; text-align: center; margin-bottom: 30px; }
@@ -684,7 +713,8 @@ ADMIN_LOGIN_TEMPLATE = '''
         .back a { color: #1976d2; }
     </style>
 </head>
-<body>    <div class="login-box">
+<body>
+    <div class="login-box">
         <h1>🔧 Admin Login</h1>
         {% if error %}
         <div class="error">{{ error }}</div>
@@ -704,239 +734,8 @@ ADMIN_LOGIN_TEMPLATE = '''
 
 ADMIN_PRODUCTS_TEMPLATE = '''
 <!DOCTYPE html>
-<html>
-<head>
+<html><head>
     <title>Admin - Products Management</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="theme-color" content="#7b1fa2">
-    <link rel="manifest" href="/static/manifest.json">
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: Arial, sans-serif; background: #f5f5f5; padding: 20px; }
-        .header {
-            background: #7b1fa2;
-            color: white;
-            padding: 20px;
-            border-radius: 10px;
-            margin-bottom: 20px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            flex-wrap: wrap;
-        }
-        .container { max-width: 1400px; margin: 0 auto; }
-        .section {
-            background: white;
-            padding: 25px;
-            border-radius: 10px;
-            margin-bottom: 20px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        .section h2 {
-            color: #7b1fa2;            margin-bottom: 20px;
-            padding-bottom: 10px;
-            border-bottom: 2px solid #7b1fa2;
-        }
-        .btn {
-            padding: 10px 20px;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 14px;
-            text-decoration: none;
-            display: inline-block;
-            margin: 5px;
-        }
-        .btn-primary { background: #1976d2; color: white; }
-        .btn-success { background: #388e3c; color: white; }
-        .btn-danger { background: #d32f2f; color: white; }
-        .btn-warning { background: #f57c00; color: white; }
-        .btn-info { background: #0288d1; color: white; }
-        .btn:hover { opacity: 0.9; }
-        input, select {
-            padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 5px;
-            font-size: 14px;
-            margin: 5px 0;
-        }
-        .form-group { margin-bottom: 15px; }
-        .form-group label { display: block; margin-bottom: 5px; font-weight: bold; }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 15px;
-        }
-        th, td {
-            padding: 12px;
-            text-align: left;
-            border-bottom: 1px solid #ddd;
-        }
-        th { background: #7b1fa2; color: white; }
-        tr:hover { background: #f5f5f5; }
-        .product-image {
-            width: 80px;
-            height: 80px;
-            object-fit: cover;
-            border-radius: 5px;
-        }
-        .nav-links {
-            display: flex;
-            gap: 10px;            align-items: center;
-        }
-        .modal {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0,0,0,0.5);
-            z-index: 1000;
-        }
-        .modal-content {
-            background: white;
-            padding: 30px;
-            border-radius: 10px;
-            max-width: 500px;
-            margin: 50px auto;
-        }
-        .close-modal {
-            float: right;
-            font-size: 28px;
-            cursor: pointer;
-            color: #999;
-        }
-        @media (max-width: 768px) {
-            .header { flex-direction: column; text-align: center; }
-            table { font-size: 12px; }
-            th, td { padding: 8px 4px; }
-            .product-image { width: 50px; height: 50px; }
-            .btn { padding: 6px 10px; font-size: 12px; }
-            body { padding: 10px; }
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>📦 Products Management</h1>
-            <div class="nav-links">
-                <a href="/admin/orders" class="btn btn-info">📬 Orders</a>
-                <a href="/admin_logout" class="btn btn-danger">Logout</a>
-            </div>
-        </div>
-        
-        <div class="section">
-            <h2>➕ Add New Product</h2>
-            <form method="POST" action="/admin/add_product" enctype="multipart/form-data">
-                <div class="form-group">
-                    <label>Product Name:</label>                    <input type="text" name="name" required style="width: 100%;">
-                </div>
-                <div class="form-group">
-                    <label>Price (Rs.):</label>
-                    <input type="number" name="price" step="0.01" required style="width: 200px;">
-                </div>
-                <div class="form-group">
-                    <label>Category:</label>
-                    <input type="text" name="category" placeholder="e.g., Rice, Flour, Spices" style="width: 300px;">
-                </div>
-                <div class="form-group">
-                    <label>Product Image:</label>
-                    <input type="file" name="image" accept="image/*">
-                </div>
-                <button type="submit" class="btn btn-success">➕ Add Product</button>
-            </form>
-        </div>
-        
-        <div class="section">
-            <h2>📋 All Products ({{ products|length }})</h2>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Image</th>
-                        <th>Name</th>
-                        <th>Category</th>
-                        <th>Price</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for product in products %}
-                    <tr>
-                        <td>
-                            {% if product.image_path %}
-                            <img src="{{ product.image_path }}" alt="{{ product.name }}" class="product-image">
-                            {% else %}
-                            <div style="width: 80px; height: 80px; background: #e0e0e0; display: flex; align-items: center; justify-content: center; border-radius: 5px;">No Image</div>
-                            {% endif %}
-                        </td>
-                        <td>{{ product.name }}</td>
-                        <td>{{ product.category or 'N/A' }}</td>
-                        <td>Rs. {{ product.price }}</td>
-                        <td>
-                            <button class="btn btn-warning" onclick="editProduct({{ product.id }}, '{{ product.name }}', {{ product.price }}, '{{ product.category or '' }}')">Edit</button>
-                            <form method="POST" action="/admin/delete_product/{{ product.id }}" style="display: inline;" onsubmit="return confirm('Delete this product?');">
-                                <button type="submit" class="btn btn-danger">Delete</button>
-                            </form>
-                        </td>
-                    </tr>                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
-    
-    <div id="editModal" class="modal">
-        <div class="modal-content">
-            <span class="close-modal" onclick="closeModal()">&times;</span>
-            <h2>Edit Product</h2>
-            <form id="editForm" method="POST" action="/admin/edit_product">
-                <input type="hidden" name="id" id="editId">
-                <div class="form-group">
-                    <label>Product Name:</label>
-                    <input type="text" name="name" id="editName" required style="width: 100%;">
-                </div>
-                <div class="form-group">
-                    <label>Price:</label>
-                    <input type="number" name="price" id="editPrice" step="0.01" required style="width: 200px;">
-                </div>
-                <div class="form-group">
-                    <label>Category:</label>
-                    <input type="text" name="category" id="editCategory" style="width: 300px;">
-                </div>
-                <button type="submit" class="btn btn-success">💾 Save Changes</button>
-            </form>
-        </div>
-    </div>
-    
-    <script>
-        function editProduct(id, name, price, category) {
-            document.getElementById('editId').value = id;
-            document.getElementById('editName').value = name;
-            document.getElementById('editPrice').value = price;
-            document.getElementById('editCategory').value = category;
-            document.getElementById('editModal').style.display = 'block';
-        }
-        
-        function closeModal() {
-            document.getElementById('editModal').style.display = 'none';
-        }
-        
-        window.onclick = function(event) {
-            const modal = document.getElementById('editModal');
-            if (event.target == modal) {
-                modal.style.display = 'none';
-            }
-        }
-    </script>
-</body></html>
-'''
-
-ADMIN_ORDERS_TEMPLATE = '''
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Admin - Orders Management</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#7b1fa2">
     <link rel="manifest" href="/static/manifest.json">
@@ -978,7 +777,238 @@ ADMIN_ORDERS_TEMPLATE = '''
             display: inline-block;
             margin: 5px;
         }
-        .btn-primary { background: #1976d2; color: white; }        .btn-success { background: #388e3c; color: white; }
+        .btn-primary { background: #1976d2; color: white; }
+        .btn-success { background: #388e3c; color: white; }
+        .btn-danger { background: #d32f2f; color: white; }
+        .btn-warning { background: #f57c00; color: white; }
+        .btn-info { background: #0288d1; color: white; }
+        .btn:hover { opacity: 0.9; }
+        input, select {            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+            margin: 5px 0;
+        }
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: block; margin-bottom: 5px; font-weight: bold; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th { background: #7b1fa2; color: white; }
+        tr:hover { background: #f5f5f5; }
+        .product-image {
+            width: 80px;
+            height: 80px;
+            object-fit: cover;
+            border-radius: 5px;
+        }
+        .nav-links {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+        }
+        .modal-content {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            max-width: 500px;
+            margin: 50px auto;
+        }
+        .close-modal {
+            float: right;            font-size: 28px;
+            cursor: pointer;
+            color: #999;
+        }
+        @media (max-width: 768px) {
+            .header { flex-direction: column; text-align: center; }
+            table { font-size: 12px; }
+            th, td { padding: 8px 4px; }
+            .product-image { width: 50px; height: 50px; }
+            .btn { padding: 6px 10px; font-size: 12px; }
+            body { padding: 10px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📦 Products Management</h1>
+            <div class="nav-links">
+                <a href="/admin/orders" class="btn btn-info">📬 Orders</a>
+                <a href="/admin_logout" class="btn btn-danger">Logout</a>
+            </div>
+        </div>
+        
+        <div class="section">
+            <h2>➕ Add New Product</h2>
+            <form method="POST" action="/admin/add_product" enctype="multipart/form-data">
+                <div class="form-group">
+                    <label>Product Name:</label>
+                    <input type="text" name="name" required style="width: 100%;">
+                </div>
+                <div class="form-group">
+                    <label>Price (Rs.):</label>
+                    <input type="number" name="price" step="0.01" required style="width: 200px;">
+                </div>
+                <div class="form-group">
+                    <label>Category:</label>
+                    <input type="text" name="category" placeholder="e.g., Rice, Flour, Spices" style="width: 300px;">
+                </div>
+                <div class="form-group">
+                    <label>Product Image:</label>
+                    <input type="file" name="image" accept="image/*">
+                </div>
+                <button type="submit" class="btn btn-success">➕ Add Product</button>
+            </form>
+        </div>
+        
+        <div class="section">
+            <h2>📋 All Products ({{ products|length }})</h2>
+            <table>                <thead>
+                    <tr>
+                        <th>Image</th>
+                        <th>Name</th>
+                        <th>Category</th>
+                        <th>Price</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for product in products %}
+                    <tr>
+                        <td>
+                            {% if product.image_path %}
+                            <img src="{{ product.image_path }}" alt="{{ product.name }}" class="product-image">
+                            {% else %}
+                            <div style="width: 80px; height: 80px; background: #e0e0e0; display: flex; align-items: center; justify-content: center; border-radius: 5px;">No Image</div>
+                            {% endif %}
+                        </td>
+                        <td>{{ product.name }}</td>
+                        <td>{{ product.category or 'N/A' }}</td>
+                        <td>Rs. {{ product.price }}</td>
+                        <td>
+                            <button class="btn btn-warning" onclick="editProduct({{ product.id }}, '{{ product.name }}', {{ product.price }}, '{{ product.category or '' }}')">Edit</button>
+                            <form method="POST" action="/admin/delete_product/{{ product.id }}" style="display: inline;" onsubmit="return confirm('Delete this product?');">
+                                <button type="submit" class="btn btn-danger">Delete</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <div id="editModal" class="modal">
+        <div class="modal-content">
+            <span class="close-modal" onclick="closeModal()">&times;</span>
+            <h2>Edit Product</h2>
+            <form id="editForm" method="POST" action="/admin/edit_product">
+                <input type="hidden" name="id" id="editId">
+                <div class="form-group">
+                    <label>Product Name:</label>
+                    <input type="text" name="name" id="editName" required style="width: 100%;">
+                </div>
+                <div class="form-group">
+                    <label>Price:</label>
+                    <input type="number" name="price" id="editPrice" step="0.01" required style="width: 200px;">
+                </div>
+                <div class="form-group">                    <label>Category:</label>
+                    <input type="text" name="category" id="editCategory" style="width: 300px;">
+                </div>
+                <button type="submit" class="btn btn-success">💾 Save Changes</button>
+            </form>
+        </div>
+    </div>
+    
+    <script>
+        function editProduct(id, name, price, category) {
+            document.getElementById('editId').value = id;
+            document.getElementById('editName').value = name;
+            document.getElementById('editPrice').value = price;
+            document.getElementById('editCategory').value = category;
+            document.getElementById('editModal').style.display = 'block';
+        }
+        
+        function closeModal() {
+            document.getElementById('editModal').style.display = 'none';
+        }
+        
+        window.onclick = function(event) {
+            const modal = document.getElementById('editModal');
+            if (event.target == modal) {
+                modal.style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html>
+'''
+
+ADMIN_ORDERS_TEMPLATE = '''
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Admin - Orders Management</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#7b1fa2">
+    <link rel="manifest" href="/static/manifest.json">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; background: #f5f5f5; padding: 20px; }
+        .header {
+            background: #7b1fa2;
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            display: flex;            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .container { max-width: 1400px; margin: 0 auto; }
+        .section {
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .section h2 {
+            color: #7b1fa2;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #7b1fa2;
+        }
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            text-decoration: none;
+            display: inline-block;
+            margin: 5px;
+        }
+        .btn-primary { background: #1976d2; color: white; }
+        .btn-success { background: #388e3c; color: white; }
         .btn-danger { background: #d32f2f; color: white; }
         .btn-info { background: #0288d1; color: white; }
         .btn:hover { opacity: 0.9; }
@@ -998,8 +1028,7 @@ ADMIN_ORDERS_TEMPLATE = '''
         }
         .order-status {
             padding: 5px 15px;
-            border-radius: 20px;
-            font-size: 12px;
+            border-radius: 20px;            font-size: 12px;
             font-weight: bold;
         }
         .status-pending { background: #fff3cd; color: #856404; }
@@ -1027,7 +1056,8 @@ ADMIN_ORDERS_TEMPLATE = '''
             .header { flex-direction: column; text-align: center; }
             .order-header { flex-direction: column; }
             body { padding: 10px; }
-            .section { padding: 15px; }        }
+            .section { padding: 15px; }
+        }
     </style>
 </head>
 <body>
@@ -1041,42 +1071,63 @@ ADMIN_ORDERS_TEMPLATE = '''
         </div>
         
         <div class="section">
-            <h2> All Orders ({{ orders|length }})</h2>
+            <h2>📦 All Orders ({{ orders|length }})</h2>
             {% if orders %}
                 {% for order in orders %}
                 <div class="order-card">
                     <div class="order-header">
                         <div>
-                            <strong> {{ order.shop_name }}</strong><br>
-                            <small>Order #{{ order.id }} | Order Date: {{ order.order_date.strftime('%Y-%m-%d %H:%M') if order.order_date else 'N/A' }}</small>
+                            <strong>🏪 {{ order.shop_name }}</strong><br>                            <small>
+                                Order #{{ order.id }}<br>
+                                Order Date: {{ order.order_date.strftime('%Y-%m-%d %I:%M %p') if order.order_date else 'N/A' }} (PKT)<br>
+                                Purchase Date: {{ order.purchase_date.strftime('%Y-%m-%d') if order.purchase_date else 'N/A' }}<br>
+                                Delivery Date: {{ order.delivery_date.strftime('%Y-%m-%d') if order.delivery_date else 'N/A' }}
+                            </small>
                         </div>
                         <div>
                             <span class="order-status status-{{ order.status }}">{{ order.status.upper() }}</span>
                         </div>
                     </div>
                     <div>
-                        <strong>Items:</strong>
-                        <ul style="margin: 10px 0; padding-left: 20px;">
-                            {% if order.items_list %}
-                                {% for item in order.items_list %}
-                                <li>{{ item.name }} - Rs. {{ item.price }} x {{ item.quantity }}</li>
-                                {% endfor %}
-                            {% else %}
-                                <li>No items</li>
-                            {% endif %}
-                        </ul>
-                        <strong>Total: Rs. {{ order.total }}</strong>
-                    </div>
-                    <div class="delivery-info">
-                        <strong>📅 Delivery Date:</strong> {{ order.delivery_date.strftime('%Y-%m-%d') if order.delivery_date else 'N/A' }}
+                        <strong>📦 Order Items:</strong>
+                        <table style="width: 100%; margin: 10px 0; border-collapse: collapse;">
+                            <thead>
+                                <tr style="background: #f5f5f5;">
+                                    <th style="padding: 10px; border: 1px solid #ddd; text-align: left;">Product</th>
+                                    <th style="padding: 10px; border: 1px solid #ddd; text-align: center;">Qty</th>
+                                    <th style="padding: 10px; border: 1px solid #ddd; text-align: right;">Price</th>
+                                    <th style="padding: 10px; border: 1px solid #ddd; text-align: right;">Subtotal</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% if order.items_list %}
+                                    {% for item in order.items_list %}
+                                    <tr>
+                                        <td style="padding: 10px; border: 1px solid #ddd;">{{ item.name }}</td>
+                                        <td style="padding: 10px; border: 1px solid #ddd; text-align: center;">{{ item.quantity }}</td>
+                                        <td style="padding: 10px; border: 1px solid #ddd; text-align: right;">Rs. {{ item.price }}</td>
+                                        <td style="padding: 10px; border: 1px solid #ddd; text-align: right;">Rs. {{ item.price * item.quantity }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                {% else %}
+                                    <tr><td colspan="4" style="padding: 10px; text-align: center;">No items</td></tr>
+                                {% endif %}
+                            </tbody>
+                            <tfoot>
+                                <tr style="background: #e3f2fd; font-weight: bold;">
+                                    <td colspan="3" style="padding: 10px; border: 1px solid #ddd; text-align: right;">Total:</td>
+                                    <td style="padding: 10px; border: 1px solid #ddd; text-align: right; color: #388e3c; font-size: 18px;">Rs. {{ order.total }}</td>
+                                </tr>
+                            </tfoot>
+                        </table>
                     </div>
                     <div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
                         <form method="POST" action="/admin/update_order/{{ order.id }}" style="display: inline;">
                             <select name="status" style="margin-right: 10px;">
                                 <option value="pending" {% if order.status == 'pending' %}selected{% endif %}>Pending</option>
                                 <option value="purchased" {% if order.status == 'purchased' %}selected{% endif %}>Purchased</option>
-                                <option value="delivered" {% if order.status == 'delivered' %}selected{% endif %}>Delivered</option>
-                                <option value="cancelled" {% if order.status == 'cancelled' %}selected{% endif %}>Cancelled</option>                            </select>
+                                <option value="delivered" {% if order.status == 'delivered' %}selected{% endif %}>Delivered</option>                                <option value="cancelled" {% if order.status == 'cancelled' %}selected{% endif %}>Cancelled</option>
+                            </select>
                             <button type="submit" class="btn btn-primary">Update Status</button>
                         </form>
                         <form method="POST" action="/admin/delete_order/{{ order.id }}" style="display: inline;" onsubmit="return confirm('Delete this order? This cannot be undone!');">
@@ -1125,7 +1176,8 @@ def my_orders():
     orders = Order.query.filter_by(shop_name=shop_name).order_by(Order.order_date.desc()).all()
     
     # Parse JSON items for each order
-    for order in orders:        try:
+    for order in orders:
+        try:
             order.items_list = json.loads(order.items) if order.items else []
         except:
             order.items_list = []
@@ -1151,30 +1203,35 @@ def submit_order():
     shop_name = data.get('shop_name')
     items = data.get('items')
     total = data.get('total')
-    delivery_date = data.get('delivery_date')
+    delivery_date_str = data.get('delivery_date')
     
-    try:
-        delivery_dt = datetime.fromisoformat(delivery_date.replace('Z', '+00:00'))
-    except:
-        delivery_dt = datetime.utcnow() + timedelta(days=2)
+    # پاکستان کا ٹائم زون (UTC+5)
+    pk_timezone = timezone(timedelta(hours=5))
     
-    # Calculate dates for workflow
-    order_date = datetime.utcnow()
-    purchase_date = order_date + timedelta(days=1)  # Day 2: خریداری
-    # delivery_date is already set to Day 3 from frontend
+    # آج کا ٹائم (پاکستان کے مطابق)
+    order_date = datetime.now(pk_timezone)
+    
+    # خریداری کا دن (اگلے دن)
+    purchase_date = order_date + timedelta(days=1)
+    
+    # ڈیلیوری کا دن (دوسرے دن بعد)
+    delivery_date = order_date + timedelta(days=2)
+    
+    # 7 دن بعد ایکسپائر
+    expire_date = order_date + timedelta(days=7)
     
     new_order = Order(
         shop_name=shop_name,
         items=json.dumps(items),
         total=total,
         status='pending',
-        order_date=order_date,
-        purchase_date=purchase_date,
-        delivery_date=delivery_dt,
-        expire_date=order_date + timedelta(days=7)
+        order_date=order_date,        purchase_date=purchase_date,
+        delivery_date=delivery_date,
+        expire_date=expire_date
     )
     
-    db.session.add(new_order)    db.session.commit()
+    db.session.add(new_order)
+    db.session.commit()
     
     return jsonify({'success': True})
 
@@ -1217,12 +1274,12 @@ def admin_orders():
     
     # Parse JSON items for each order
     for order in orders:
-        try:
-            order.items_list = json.loads(order.items) if order.items else []
+        try:            order.items_list = json.loads(order.items) if order.items else []
         except:
             order.items_list = []
     
     return render_template_string(ADMIN_ORDERS_TEMPLATE, orders=orders)
+
 @app.route('/admin/add_product', methods=['POST'])
 @admin_required
 def add_product():
@@ -1273,6 +1330,7 @@ def edit_product():
     db.session.commit()
     
     return redirect(url_for('admin_products'))
+
 @app.route('/admin/delete_product/<int:product_id>', methods=['POST'])
 @admin_required
 def delete_product(product_id):
@@ -1290,11 +1348,11 @@ def update_order(order_id):
     
     # Auto-set purchase date when status changes to purchased
     if status == 'purchased' and not order.purchase_date:
-        order.purchase_date = datetime.utcnow()
+        order.purchase_date = get_pakistan_time()
     
     # Auto-set delivery date when status changes to delivered
     if status == 'delivered' and not order.delivery_date:
-        order.delivery_date = datetime.utcnow()
+        order.delivery_date = get_pakistan_time()
     
     db.session.commit()
     return redirect(url_for('admin_orders'))
@@ -1316,12 +1374,12 @@ def serve_manifest():
 @app.route('/static/service-worker.js')
 def serve_sw():
     return send_from_directory('static', 'service-worker.js')
-
 @app.route('/static/<path:filename>')
 def static_files(filename):
     return send_from_directory('static', filename)
 
 # ==================== RUN APP ====================
+
 import os
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8550))
