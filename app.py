@@ -94,12 +94,7 @@ scheduler = BackgroundScheduler()
 scheduler.add_job(func=cleanup_old_orders, trigger="interval", hours=24)
 scheduler.start()
 
-# ==================== HELPER FUNCTIONS ====================
-
-def get_db():
-    """Legacy function - now returns db session"""
-    return db.session
-
+# ==================== HELPER FUNCTIONS =================
 def admin_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
