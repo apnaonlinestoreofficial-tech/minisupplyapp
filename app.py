@@ -47,8 +47,7 @@ def get_pakistan_time():
     """پاکستان کا موجودہ وقت"""
     return datetime.now(pk_timezone)
 
-# ==================== DATABASE MODELS ====================
-class Product(db.Model):
+# ==================== DATABASE MODELS ====================class Product(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(200), nullable=False)
     price = db.Column(db.Float, nullable=False)
@@ -97,8 +96,7 @@ scheduler.start()
 # ==================== HELPER FUNCTIONS =================
 
 def admin_required(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
+    @wraps(f)    def decorated_function(*args, **kwargs):
         if not session.get('is_admin'):
             return redirect(url_for('admin_login'))
         return f(*args, **kwargs)
@@ -147,8 +145,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             margin: 15px 0;
             border: 1px solid #ddd;
             border-radius: 5px;
-            font-size: 16px;
-        }
+            font-size: 16px;        }
         .btn {
             background: #1976d2;
             color: white;
@@ -197,8 +194,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             width: 100%;
             height: 200px;
             object-fit: cover;
-            background: #f5f5f5;
-        }
+            background: #f5f5f5;        }
         .product-info { padding: 15px; }
         .product-info h3 { color: #333; margin-bottom: 8px; font-size: 18px; }
         .product-info p { color: #388e3c; font-weight: bold; font-size: 20px; }
@@ -247,8 +243,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             font-size: 12px;
         }
         .cart-total {
-            margin-top: 15px;
-            padding-top: 15px;
+            margin-top: 15px;            padding-top: 15px;
             border-top: 3px solid #1976d2;
             font-weight: bold;
             font-size: 22px;
@@ -297,8 +292,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
         }
     </style>
 </head>
-<body>
-    {% if not session.get('logged_in') %}
+<body>    {% if not session.get('logged_in') %}
     <div class="container">
         <div class="login-box">
             <h1 style="color: #1976d2; margin-bottom: 10px;">🛒 Mini Supply App</h1>
@@ -339,13 +333,15 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
                     <p>Rs. {{ product.price }}</p>
                     {% if product.category %}
                     <div class="category">Category: {{ product.category }}</div>                    {% endif %}
-                    <button class="btn btn-success" style="width: 100%; margin-top: 10px;" 
-                            onclick="addToCart({{ product.id }}, '{{ product.name }}', {{ product.price }})">
+                    <button class="btn btn-success add-to-cart-btn" 
+                            style="width: 100%; margin-top: 10px;"
+                            data-id="{{ product.id }}"
+                            data-name="{{ product.name }}"
+                            data-price="{{ product.price }}">
                         🛒 Add to Cart
                     </button>
                 </div>
-            </div>
-            {% endfor %}
+            </div>            {% endfor %}
         </div>
     </div>
     
@@ -366,6 +362,17 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
     <script>
         let cart = [];
         
+        document.addEventListener('DOMContentLoaded', function() {
+            document.querySelectorAll('.add-to-cart-btn').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    const id = parseInt(this.dataset.id);
+                    const name = this.dataset.name;
+                    const price = parseFloat(this.dataset.price);
+                    addToCart(id, name, price);
+                });
+            });
+        });
+        
         function addToCart(id, name, price) {
             const existingItem = cart.find(item => item.id === id);
             if (existingItem) {
@@ -383,8 +390,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
                 if (item.quantity <= 0) {
                     cart = cart.filter(i => i.id !== id);
                 }
-                updateCart();
-            }
+                updateCart();            }
         }
         
         function removeItem(id) {            cart = cart.filter(item => item.id !== id);
@@ -433,8 +439,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             
             products.forEach(product => {
                 const name = product.getAttribute('data-name');
-                if (name.includes(searchTerm)) {
-                    product.style.display = 'block';
+                if (name.includes(searchTerm)) {                    product.style.display = 'block';
                 } else {
                     product.style.display = 'none';                }
             });
@@ -483,8 +488,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
                 }
             })
             .catch(error => {
-                console.error('Error:', error);
-                alert('Error submitting order');
+                console.error('Error:', error);                alert('Error submitting order');
             });        }
         
         updateCart();
@@ -533,8 +537,7 @@ MY_ORDERS_TEMPLATE = '''<!DOCTYPE html>
         }
         .order-header {
             display: flex;
-            justify-content: space-between;
-            margin-bottom: 15px;            padding-bottom: 10px;
+            justify-content: space-between;            margin-bottom: 15px;            padding-bottom: 10px;
             border-bottom: 1px solid #ddd;
         }
         .order-status {
@@ -583,8 +586,7 @@ MY_ORDERS_TEMPLATE = '''<!DOCTYPE html>
     <div class="container">
         <div class="header">
             <h1>📦 My Orders</h1>
-            <div class="nav-links">                <span>Welcome: <strong>{{ session.shop_name }}</strong></span>
-                <a href="/" class="btn btn-primary">🛒 Products</a>
+            <div class="nav-links">                <span>Welcome: <strong>{{ session.shop_name }}</strong></span>                <a href="/" class="btn btn-primary">🛒 Products</a>
                 <a href="/logout" class="btn btn-danger">Logout</a>
             </div>
         </div>
@@ -633,8 +635,7 @@ MY_ORDERS_TEMPLATE = '''<!DOCTYPE html>
                             {% endif %}
                         </tbody>
                         <tfoot>                            <tr style="background: #e3f2fd; font-weight: bold;">
-                                <td colspan="3" style="padding: 10px; border: 1px solid #ddd; text-align: right;">Total:</td>
-                                <td style="padding: 10px; border: 1px solid #ddd; text-align: right; color: #388e3c; font-size: 18px;">Rs. {{ order.total }}</td>
+                                <td colspan="3" style="padding: 10px; border: 1px solid #ddd; text-align: right;">Total:</td>                                <td style="padding: 10px; border: 1px solid #ddd; text-align: right; color: #388e3c; font-size: 18px;">Rs. {{ order.total }}</td>
                             </tr>
                         </tfoot>
                     </table>
@@ -683,8 +684,7 @@ ADMIN_LOGIN_TEMPLATE = '''
             max-width: 400px; 
             margin: 100px auto;             border-radius: 10px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        h1 { color: #7b1fa2; text-align: center; margin-bottom: 30px; }
+        }        h1 { color: #7b1fa2; text-align: center; margin-bottom: 30px; }
         input { 
             width: 100%; 
             padding: 12px; 
@@ -733,8 +733,7 @@ ADMIN_PRODUCTS_TEMPLATE = '''
 <html><head>
     <title>Admin - Products Management</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="theme-color" content="#7b1fa2">
-    <link rel="manifest" href="/static/manifest.json">
+    <meta name="theme-color" content="#7b1fa2">    <link rel="manifest" href="/static/manifest.json">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: Arial, sans-serif; background: #f5f5f5; padding: 20px; }
@@ -783,8 +782,7 @@ ADMIN_PRODUCTS_TEMPLATE = '''
             border: 1px solid #ddd;
             border-radius: 5px;
             font-size: 14px;
-            margin: 5px 0;
-        }
+            margin: 5px 0;        }
         .form-group { margin-bottom: 15px; }
         .form-group label { display: block; margin-bottom: 5px; font-weight: bold; }
         table {
@@ -833,8 +831,7 @@ ADMIN_PRODUCTS_TEMPLATE = '''
             color: #999;
         }
         @media (max-width: 768px) {
-            .header { flex-direction: column; text-align: center; }
-            table { font-size: 12px; }
+            .header { flex-direction: column; text-align: center; }            table { font-size: 12px; }
             th, td { padding: 8px 4px; }
             .product-image { width: 50px; height: 50px; }
             .btn { padding: 6px 10px; font-size: 12px; }
@@ -883,8 +880,7 @@ ADMIN_PRODUCTS_TEMPLATE = '''
                         <th>Name</th>
                         <th>Category</th>
                         <th>Price</th>
-                        <th>Actions</th>
-                    </tr>
+                        <th>Actions</th>                    </tr>
                 </thead>
                 <tbody>
                     {% for product in products %}
@@ -933,8 +929,7 @@ ADMIN_PRODUCTS_TEMPLATE = '''
             </form>
         </div>
     </div>
-    
-    <script>
+        <script>
         function editProduct(id, name, price, category) {
             document.getElementById('editId').value = id;
             document.getElementById('editName').value = name;
@@ -983,8 +978,7 @@ ADMIN_ORDERS_TEMPLATE = '''
         .section {
             background: white;
             padding: 25px;
-            border-radius: 10px;
-            margin-bottom: 20px;
+            border-radius: 10px;            margin-bottom: 20px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }
         .section h2 {
@@ -1033,8 +1027,7 @@ ADMIN_ORDERS_TEMPLATE = '''
         .status-cancelled { background: #f8d7da; color: #721c24; }
         .delivery-info {
             background: #e3f2fd;
-            padding: 10px;
-            border-radius: 5px;
+            padding: 10px;            border-radius: 5px;
             margin-top: 10px;
         }
         .nav-links {
@@ -1083,8 +1076,7 @@ ADMIN_ORDERS_TEMPLATE = '''
                         <div>
                             <span class="order-status status-{{ order.status }}">{{ order.status.upper() }}</span>
                         </div>
-                    </div>
-                    <div>
+                    </div>                    <div>
                         <strong>📦 Order Items:</strong>
                         <table style="width: 100%; margin: 10px 0; border-collapse: collapse;">
                             <thead>
@@ -1133,8 +1125,7 @@ ADMIN_ORDERS_TEMPLATE = '''
                 </div>
                 {% endfor %}
             {% else %}
-                <p style="color: #999; text-align: center; padding: 40px;">No orders yet</p>
-            {% endif %}
+                <p style="color: #999; text-align: center; padding: 40px;">No orders yet</p>            {% endif %}
         </div>
     </div>
 </body>
@@ -1183,8 +1174,7 @@ def my_orders():
 @app.route('/cancel_order/<int:order_id>', methods=['POST'])
 def cancel_order(order_id):
     if not session.get('logged_in'):
-        return redirect(url_for('home'))
-    
+        return redirect(url_for('home'))    
     shop_name = session.get('shop_name')
     order = Order.query.filter_by(id=order_id, shop_name=shop_name).first()
     if order:
@@ -1233,8 +1223,7 @@ def submit_order():
 
 # ==================== ADMIN ROUTES ====================
 
-@app.route('/admin_login', methods=['GET', 'POST'])
-def admin_login():
+@app.route('/admin_login', methods=['GET', 'POST'])def admin_login():
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
@@ -1283,8 +1272,7 @@ def add_product():
     price = float(request.form.get('price'))
     category = request.form.get('category')
     
-    image_path = None
-    if 'image' in request.files:
+    image_path = None    if 'image' in request.files:
         file = request.files['image']
         if file and file.filename != '':
             filename = secure_filename(file.filename)
@@ -1334,7 +1322,6 @@ def delete_product(product_id):
     db.session.delete(product)
     db.session.commit()
     return redirect(url_for('admin_products'))
-
 @app.route('/admin/update_order/<int:order_id>', methods=['POST'])
 @admin_required
 def update_order(order_id):
